@@ -31,11 +31,6 @@ on:
         default: "YouTube"
         required: true
         type: string
-      create_release:
-        description: "Create a draft release"
-        default: true
-        required: false
-        type: boolean
       upload_artifact:
         description: "Upload Artifact"
         default: true
@@ -152,17 +147,3 @@ jobs:
           name: uYouEnhanced_${{ env.YOUTUBE_VERSION }}_${{ env.UYOU_VERSION }}
           path: ${{ github.workspace }}/main/packages/${{ steps.build_package.outputs.package }}
           if-no-files-found: error
-
-      - name: Create Release
-        id: create_release
-        uses: softprops/action-gh-release@v2.0.1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          UYOU_VERSION: ${{ inputs.uyou_version }}
-          YOUTUBE_VERSION: ${{ steps.prepare_youtube.outputs.youtube_version }}
-          DRAFT: ${{ inputs.create_release }}
-        with:
-          tag_name: v${{ env.YOUTUBE_VERSION }}-${{ env.UYOU_VERSION }}-(${{ github.run_number }})
-          name: v${{ env.YOUTUBE_VERSION }}-${{ env.UYOU_VERSION }}-(${{ github.run_number }})
-          files: main/packages/*.ipa
-          draft: ${{ env.DRAFT }}
