@@ -316,22 +316,21 @@ BOOL isAd(YTIElementRenderer *self) {
 %group gFakePremium
 // YouTube Premium Logo - @arichornlover & bhackel
 %hook YTHeaderLogoController
-    - (void)setTopbarLogoRenderer:(id)renderer {
-        // Modify the type of the icon before setting the renderer
-        YTITopbarLogoRenderer *logoRenderer = (YTITopbarLogoRenderer *)renderer;
-        YTIIcon *iconImage = logoRenderer.iconImage;
-        iconImage.iconType = 537; // magic number for Premium icon, hopefully it doesnt change. 158 is default logo.
-        // Use this modified renderer
-        %orig(logoRenderer);
-    }
-    // For when spoofing before 18.34.5
-    - (void)setPremiumLogo:(BOOL)isPremiumLogo {
-        isPremiumLogo = YES;
-        %orig;
-    }
-    - (BOOL)isPremiumLogo {
-        return YES;
-    }
+- (void)setTopbarLogoRenderer:(YTITopbarLogoRenderer *)renderer {
+    // Modify the type of the icon before setting the renderer
+    YTIIcon *iconImage = renderer.iconImage;
+    iconImage.iconType = 537; // magic number for Premium icon, hopefully it doesnt change. 158 is default logo.
+    // Use this modified renderer
+    %orig;
+}
+// For when spoofing before 18.34.5
+- (void)setPremiumLogo:(BOOL)isPremiumLogo {
+    isPremiumLogo = YES;
+    %orig;
+}
+- (BOOL)isPremiumLogo {
+    return YES;
+}
 %end
 %hook YTAppCollectionViewController
 /**
@@ -342,6 +341,13 @@ BOOL isAd(YTIElementRenderer *self) {
   */
 %new
 - (void)uYouEnhancedFakePremiumModel:(YTISectionListRenderer *)model {
+    // Don't do anything if the version is too low
+    Class YTVersionUtilsClass = %c(YTVersionUtils);
+    NSString *appVersion = [YTVersionUtilsClass performSelector:@selector(appVersion)];
+    NSComparisonResult result = [appVersion compare:@"18.35.4" options:NSNumericSearch];
+    if (result == NSOrderedAscending) {
+        return;
+    }
     NSUInteger yourVideosCellIndex = -1;
     NSMutableArray <YTISectionListSupportedRenderers *> *overallContentsArray = model.contentsArray;
     // Check each item in the overall array - this represents the whole You page
@@ -715,7 +721,17 @@ BOOL isAd(YTIElementRenderer *self) {
 %end
 %end
 
-/* This is disabled due to "self.enableSnapToChapter" not existing.
+// Disable Double tap to skip chapter - @bhackel
+%hook YTDoubleTapToSeekController
+- (void)didTwoFingerDoubleTap:(id)arg1 {
+    if (IS_ENABLED(@"disableChapterSkip_enabled")) {
+        return;
+    }
+    %orig;
+}
+%end
+
+
 // Disable snap to chapter
 %hook YTSegmentableInlinePlayerBarView
 - (void)didMoveToWindow {
@@ -725,7 +741,7 @@ BOOL isAd(YTIElementRenderer *self) {
     }
 }
 %end
-*/
+
 
 // Disable Pinch to zoom
 %hook YTColdConfig
@@ -762,14 +778,59 @@ BOOL isAd(YTIElementRenderer *self) {
 }
 %end
 
-// Hide double tap to seek overlay - @arichornlover
+// Hide double tap to seek overlay - @arichornlover & @bhackel
+%group gHideDoubleTapToSeekOverlay
 %hook YTInlinePlayerDoubleTapIndicatorView
+%property(nonatomic, strong) CABasicAnimation *uYouEnhancedBlankAlphaAnimation;
+%property(nonatomic, strong) CABasicAnimation *uYouEnhancedBlankColorAnimation;
+/**
+ * @return A clear color animation
+ */
+%new
+- (CABasicAnimation *)uYouEnhancedGetBlankColorAnimation {
+    if (!self.uYouEnhancedBlankColorAnimation) {
+        // Create a new basic animation for the color property
+        self.uYouEnhancedBlankColorAnimation = [CABasicAnimation animationWithKeyPath:@"backgroundColor"];
+        // Set values to 0 to prevent visibility
+        self.uYouEnhancedBlankColorAnimation.fromValue = (id)[UIColor clearColor].CGColor;
+        self.uYouEnhancedBlankColorAnimation.toValue = (id)[UIColor clearColor].CGColor;
+        self.uYouEnhancedBlankColorAnimation.duration = 0.0;
+        self.uYouEnhancedBlankColorAnimation.fillMode = kCAFillModeForwards;
+        self.uYouEnhancedBlankColorAnimation.removedOnCompletion = NO;
+    }
+    return self.uYouEnhancedBlankColorAnimation;
+}
+// Replace all color animations with a clear one
+- (CABasicAnimation *)fillColorAnimation {
+    return [self uYouEnhancedGetBlankColorAnimation];
+}
+- (CABasicAnimation *)earlyBackgroundColorAnimation {
+    return [self uYouEnhancedGetBlankColorAnimation];
+}
+- (CABasicAnimation *)laterBackgroundcolorAnimation {
+    return [self uYouEnhancedGetBlankColorAnimation];
+}
+// Replace the opacity animation with a clear one
+- (CABasicAnimation *)alphaAnimation {
+    if (!self.uYouEnhancedBlankAlphaAnimation) {
+        // Create a new basic animation for the opacity property
+        self.uYouEnhancedBlankAlphaAnimation = [CABasicAnimation animationWithKeyPath:@"opacity"];
+        // Set values to 0 to prevent visibility
+        self.uYouEnhancedBlankAlphaAnimation.fromValue = @0.0;
+        self.uYouEnhancedBlankAlphaAnimation.toValue = @0.0;
+        self.uYouEnhancedBlankAlphaAnimation.duration = 0.0;
+        self.uYouEnhancedBlankAlphaAnimation.fillMode = kCAFillModeForwards;
+        self.uYouEnhancedBlankAlphaAnimation.removedOnCompletion = NO; 
+    }
+    return self.uYouEnhancedBlankAlphaAnimation;
+}
+// Remove the screen darkening effect
 - (void)layoutSubviews {
     %orig;
-    if (IS_ENABLED(@"hideDoubleTapToSeekOverlay_enabled")) {
-        self.frame = CGRectZero;
-    }
+    // Set the 0th subview (which darkens the screen) to hidden
+    self.subviews[0].hidden = YES;
 }
+%end
 %end
 
 // Disable pull to enter vertical/portrait fullscreen gesture - @bhackel
@@ -889,16 +950,29 @@ BOOL isAd(YTIElementRenderer *self) {
 }
 %end
 
-// %group gHidePreviousAndNextButton
-// %hook YTColdConfig
-// - (BOOL)removeNextPaddleForAllVideos { 
-//     return YES; 
-// }
-// - (BOOL)removePreviousPaddleForAllVideos { 
-//     return YES; 
-// }
-// %end
-// %end
+// Always use remaining time in the video player - @bhackel
+%hook YTInlinePlayerBarContainerView
+// Modify constructor to enable the feature when it is done
+- (instancetype)init {
+    YTInlinePlayerBarContainerView *playerBar = (YTInlinePlayerBarContainerView *)%orig;
+    if (playerBar && IS_ENABLED(@"alwaysShowRemainingTime_enabled")) {
+        playerBar.shouldDisplayTimeRemaining = YES;
+    }
+    return playerBar;
+}
+%end
+
+// Hide previous and next buttons in all videos - @bhackel
+%group gHidePreviousAndNextButton
+%hook YTColdConfig
+- (BOOL)removeNextPaddleForAllVideos { 
+    return YES; 
+}
+- (BOOL)removePreviousPaddleForAllVideos { 
+    return YES; 
+}
+%end
+%end
 
 // Hide Video Title (in Fullscreen) - @arichornlover
 %hook YTMainAppVideoPlayerOverlayView
@@ -1423,9 +1497,9 @@ static BOOL findCell(ASNodeController *nodeController, NSArray <NSString *> *ide
     if (IS_ENABLED(@"hideSubscriptionsNotificationBadge_enabled")) {
         %init(gHideSubscriptionsNotificationBadge);
     }
-    // if (IS_ENABLED(@"hidePreviousAndNextButton_enabled")) {
-    //     %init(gHidePreviousAndNextButton);
-    // }
+    if (IS_ENABLED(@"hidePreviousAndNextButton_enabled")) {
+        %init(gHidePreviousAndNextButton);
+    }
     if (IS_ENABLED(@"hideOverlayDarkBackground_enabled")) {
         %init(gHideOverlayDarkBackground);
     }
@@ -1525,17 +1599,20 @@ static BOOL findCell(ASNodeController *nodeController, NSArray <NSString *> *ide
     if (IS_ENABLED(@"hideHomeTab_enabled")) {
         %init(gHideHomeTab);
     }
+    if (IS_ENABLED(@"hideDoubleTapToSeekOverlay_enabled")) {
+        %init(gHideDoubleTapToSeekOverlay);
+    }
 
     // YTNoModernUI - @arichorn
     BOOL ytNoModernUIEnabled = IS_ENABLED(@"ytNoModernUI_enabled");
     if (ytNoModernUIEnabled) {
-    NSUserDefaults *userDefaults = [NSUserDefaults standardUserDefaults];
-    [userDefaults setBool:NO forKey:@"enableVersionSpoofer_enabled"];
+        NSUserDefaults *userDefaults = [NSUserDefaults standardUserDefaults];
+        [userDefaults setBool:NO forKey:@"enableVersionSpoofer_enabled"];
     } else {
-    BOOL enableVersionSpooferEnabled = IS_ENABLED(@"enableVersionSpoofer_enabled");
+        BOOL enableVersionSpooferEnabled = IS_ENABLED(@"enableVersionSpoofer_enabled");
 
-    NSUserDefaults *userDefaults = [NSUserDefaults standardUserDefaults];
-    [userDefaults setBool:enableVersionSpooferEnabled forKey:@"enableVersionSpoofer_enabled"];
+        NSUserDefaults *userDefaults = [NSUserDefaults standardUserDefaults];
+        [userDefaults setBool:enableVersionSpooferEnabled forKey:@"enableVersionSpoofer_enabled"];
     }
     NSUserDefaults *userDefaults = [NSUserDefaults standardUserDefaults];
     [userDefaults setBool:ytNoModernUIEnabled ? ytNoModernUIEnabled : [userDefaults boolForKey:@"fixLowContrastMode_enabled"] forKey:@"fixLowContrastMode_enabled"];
