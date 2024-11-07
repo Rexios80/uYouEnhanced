@@ -60,7 +60,7 @@ jobs:
 
     steps:
       - name: Checkout Main
-        uses: actions/checkout@v4.1.7
+        uses: actions/checkout@v4.2.1
         with:
           path: main
           ref: ${{ github.event.inputs.commit_id || github.ref }}
@@ -73,7 +73,7 @@ jobs:
         run: echo "$(brew --prefix make)/libexec/gnubin" >> $GITHUB_PATH 
 
       - name: Setup Theos
-        uses: actions/checkout@v4.1.7
+        uses: actions/checkout@v4.2.1
         with:
           repository: theos/theos
           ref: 5bfdc3cb7133ec1cab43182115d902e2b57c9eac
@@ -82,7 +82,7 @@ jobs:
       
       - name: SDK Caching
         id: SDK
-        uses: actions/cache@v4.0.2
+        uses: actions/cache@v4.1.1
         env:
           cache-name: iOS-${{ inputs.sdk_version }}-SDK
         with:
@@ -102,7 +102,7 @@ jobs:
           THEOS: ${{ github.workspace }}/theos
 
       - name: Setup Theos Jailed
-        uses: actions/checkout@v4.1.7
+        uses: actions/checkout@v4.2.1
         with:
           repository: qnblackcat/theos-jailed
           ref: master
@@ -115,10 +115,16 @@ jobs:
         env:
           THEOS: ${{ github.workspace }}/theos
 
+      - name: Hash YT ipa url
+        run: |
+          URL_YT="$(jq -r '.inputs.decrypted_youtube_url' $GITHUB_EVENT_PATH)"
+          echo ::add-mask::$URL_YT
+          echo URL_YT=$URL_YT >> $GITHUB_ENV
+
       - name: Prepare YouTube iPA
         id: prepare_youtube
         run: |
-          wget "$YOUTUBE_URL" --no-verbose -O main/YouTube.ipa
+          wget "$YOUTUBE_URL" --quiet --no-verbose -O main/YouTube.ipa
           cd ${{ github.workspace }}/main
           mv YouTube.ipa YouTube.zip
           unzip -q YouTube.zip
@@ -129,7 +135,7 @@ jobs:
 
         env:
           THEOS: ${{ github.workspace }}/theos
-          YOUTUBE_URL: ${{ inputs.decrypted_youtube_url }}
+          YOUTUBE_URL: ${{ env.URL_YT }}
 
       - name: Fix compiling & Build Package
         id: build_package
@@ -151,7 +157,7 @@ jobs:
 
       - name: Upload Artifact
         if: ${{ inputs.upload_artifact }}
-        uses: actions/upload-artifact@v4.3.4
+        uses: actions/upload-artifact@v4.4.3
         env:
           UYOU_VERSION: ${{ inputs.uyou_version }}
           YOUTUBE_VERSION: ${{ steps.prepare_youtube.outputs.youtube_version }}
@@ -159,3 +165,17 @@ jobs:
           name: uYouEnhanced_${{ env.YOUTUBE_VERSION }}_${{ env.UYOU_VERSION }}
           path: ${{ github.workspace }}/main/packages/${{ steps.build_package.outputs.package }}
           if-no-files-found: error
+
+      - name: Create Release
+        if: ${{ inputs.create_release }}
+        id: create_release
+        uses: softprops/action-gh-release@v2.0.8
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UYOU_VERSION: ${{ inputs.uyou_version }}
+          YOUTUBE_VERSION: ${{ steps.prepare_youtube.outputs.youtube_version }}
+        with:
+          tag_name: v${{ env.YOUTUBE_VERSION }}-${{ env.UYOU_VERSION }}-(${{ github.run_number }})
+          name: v${{ env.YOUTUBE_VERSION }}-${{ env.UYOU_VERSION }}-(${{ github.run_number }})
+          files: main/packages/*.ipa
+          draft: true
